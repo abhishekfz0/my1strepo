@@ -1,0 +1,46 @@
+#  Template python-build
+
+#  This template allows you to validate your python code.
+#  The workflow allows running tests and code linting on the default branch.
+
+image: python:3.8
+
+definitions:
+  services:
+    docker:
+      memory: 2048
+  steps:
+    - step: &install-lint-build
+        name: Build
+        caches:
+          - pip
+        script:
+          - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # - pip install pytest
+          # - pytest -v tests/* --junitxml=test-reports/report.xml
+
+    - step: &cloud-run-deploy
+        name: Cloud run deploy
+        image: google/cloud-sdk:slim
+        script:
+          - echo $GCLOUD_AUTH_KEY | base64 --decode --ignore-garbage > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $PROJECT_ID
+          - gcloud builds submit --tag gcr.io/$PROJECT_ID/vera-contextual-model-server
+          - gcloud run deploy vera-contextual-model-server --image gcr.io/$PROJECT_ID/vera-server --platform managed --region asia-south1 --allow-unauthenticated --service-account $SERVICE_ACCOUNT --set-env-vars=DB_CONNECT=$DB_CONNECT --set-env-vars=DB_NAME=$DB_NAME --set-env-vars=PINECONE_KEY=$PINECONE_KEY
+        options:
+          docker: true
+
+pipelines:
+  default:
+    - step:
+        <<: *install-lint-build
+
+  branches:
+    develop:
+      - step:
+          <<: *install-lint-build
+      - step:
+          <<: *cloud-run-deploy
+          deployment: Development
+          trigger: manual
